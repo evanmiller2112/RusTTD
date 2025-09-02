@@ -60,17 +60,13 @@ impl Player {
         }
     }
 
-    pub fn can_afford(&self, amount: i64) -> bool {
-        self.money >= amount
+    pub fn can_afford(&self, _amount: i64) -> bool {
+        true // Infinite money for now
     }
 
-    pub fn spend_money(&mut self, amount: i64) -> bool {
-        if self.can_afford(amount) {
-            self.money -= amount;
-            true
-        } else {
-            false
-        }
+    pub fn spend_money(&mut self, _amount: i64) -> bool {
+        // Don't actually spend money - infinite money mode
+        true
     }
 
     pub fn add_vehicle(&mut self, vehicle_type: VehicleType, x: usize, y: usize) -> Option<u32> {

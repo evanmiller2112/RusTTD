@@ -145,6 +145,15 @@ impl World {
             if let Some(tile) = self.tiles.get_mut(*y).and_then(|row| row.get_mut(*x)) {
                 if let TileContent::Town(ref mut town) = tile.content {
                     town.population = (town.population as f32 * (1.0 + town.growth_rate / 100.0)) as u32;
+                    
+                    // Generate cargo demand based on population
+                    let base_demand = town.population / 100; // 1 unit demand per 100 people
+                    *town.cargo_demand.entry(CargoType::Food).or_insert(0) += base_demand;
+                    *town.cargo_demand.entry(CargoType::Goods).or_insert(0) += base_demand / 2;
+                    *town.cargo_demand.entry(CargoType::Mail).or_insert(0) += base_demand / 4;
+                    
+                    // Towns also generate passengers
+                    *town.cargo_supply.entry(CargoType::Passengers).or_insert(0) += town.population / 200;
                 }
             }
         }
@@ -157,6 +166,12 @@ impl World {
                 }
             }
         }
+        
+        // Transfer cargo from industries to nearby stations
+        self.transfer_cargo_to_stations();
+        
+        // Transfer passengers from towns to nearby stations
+        self.transfer_passengers_to_stations();
     }
 
     fn generate_terrain(&mut self) {
@@ -259,6 +274,92 @@ impl World {
         if industry.cargo_input.is_empty() {
             for cargo_type in &industry.cargo_output {
                 *industry.stockpile.entry(cargo_type.clone()).or_insert(0) += industry.production_rate;
+            }
+        }
+    }
+    
+    fn transfer_cargo_to_stations(&mut self) {
+        let industries = self.industries.clone();
+        
+        for (industry_x, industry_y) in industries {
+            // Find cargo to transfer from this industry
+            let mut cargo_to_transfer = HashMap::new();
+            
+            if let Some(tile) = self.get_tile(industry_x, industry_y) {
+                if let TileContent::Industry(industry) = &tile.content {
+                    // Transfer some cargo from stockpile
+                    for (cargo_type, &amount) in &industry.stockpile {
+                        if amount > 0 {
+                            let transfer_amount = (amount / 4).max(1); // Transfer 25% of stockpile
+                            cargo_to_transfer.insert(cargo_type.clone(), transfer_amount);
+                        }
+                    }
+                }
+            }
+            
+            // Look for nearby stations to transfer to
+            for station_x in industry_x.saturating_sub(3)..=(industry_x + 3).min(self.width - 1) {
+                for station_y in industry_y.saturating_sub(3)..=(industry_y + 3).min(self.height - 1) {
+                    if let Some(tile) = self.tiles.get_mut(station_y).and_then(|row| row.get_mut(station_x)) {
+                        if let TileContent::Station(ref mut station) = tile.content {
+                            // Transfer cargo to this station
+                            for (cargo_type, &amount) in &cargo_to_transfer {
+                                *station.cargo_waiting.entry(cargo_type.clone()).or_insert(0) += amount;
+                            }
+                        }
+                    }
+                }
+            }
+            
+            // Remove transferred cargo from industry stockpile
+            if let Some(tile) = self.tiles.get_mut(industry_y).and_then(|row| row.get_mut(industry_x)) {
+                if let TileContent::Industry(ref mut industry) = tile.content {
+                    for (cargo_type, &amount) in &cargo_to_transfer {
+                        if let Some(stockpile_amount) = industry.stockpile.get_mut(&cargo_type) {
+                            *stockpile_amount = stockpile_amount.saturating_sub(amount);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    fn transfer_passengers_to_stations(&mut self) {
+        let towns = self.towns.clone();
+        
+        for (town_x, town_y) in towns {
+            // Find passengers to transfer from this town
+            let mut passengers_to_transfer = 0;
+            
+            if let Some(tile) = self.get_tile(town_x, town_y) {
+                if let TileContent::Town(town) = &tile.content {
+                    if let Some(&passengers) = town.cargo_supply.get(&CargoType::Passengers) {
+                        passengers_to_transfer = passengers / 2; // Transfer half the passengers
+                    }
+                }
+            }
+            
+            if passengers_to_transfer > 0 {
+                // Look for nearby stations to transfer passengers to
+                for station_x in town_x.saturating_sub(2)..=(town_x + 2).min(self.width - 1) {
+                    for station_y in town_y.saturating_sub(2)..=(town_y + 2).min(self.height - 1) {
+                        if let Some(tile) = self.tiles.get_mut(station_y).and_then(|row| row.get_mut(station_x)) {
+                            if let TileContent::Station(ref mut station) = tile.content {
+                                *station.cargo_waiting.entry(CargoType::Passengers).or_insert(0) += passengers_to_transfer;
+                                break; // Only transfer to first station found
+                            }
+                        }
+                    }
+                }
+                
+                // Remove transferred passengers from town
+                if let Some(tile) = self.tiles.get_mut(town_y).and_then(|row| row.get_mut(town_x)) {
+                    if let TileContent::Town(ref mut town) = tile.content {
+                        if let Some(passenger_supply) = town.cargo_supply.get_mut(&CargoType::Passengers) {
+                            *passenger_supply = passenger_supply.saturating_sub(passengers_to_transfer);
+                        }
+                    }
+                }
             }
         }
     }

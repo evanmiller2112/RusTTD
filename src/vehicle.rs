@@ -1,5 +1,5 @@
-use std::collections::HashMap;
-use crate::world::{CargoType, World};
+use std::collections::{HashMap, VecDeque, HashSet};
+use crate::world::{CargoType, World, TileContent};
 use crate::economy::Economy;
 
 // Configuration: Set to false to disable vehicle breakdowns
@@ -64,6 +64,8 @@ pub struct Vehicle {
     pub cargo: HashMap<CargoType, u32>,
     pub route: Vec<(usize, usize)>,
     pub route_index: usize,
+    pub current_path: Vec<(usize, usize)>, // Step-by-step path to next station
+    pub path_index: usize, // Current position in the path
     pub age: u32,
     pub reliability: u8,
     pub speed: u32,
@@ -86,6 +88,8 @@ impl Vehicle {
             cargo: HashMap::new(),
             route: Vec::new(),
             route_index: 0,
+            current_path: Vec::new(),
+            path_index: 0,
             age: 0,
             reliability,
             speed,
@@ -113,16 +117,29 @@ impl Vehicle {
         match &mut self.state {
             VehicleState::Idle => {
                 if !self.route.is_empty() {
-                    self.start_moving_to_next_station();
+                    self.start_moving_to_next_station(world);
                 }
             }
             VehicleState::Moving { from: _, to, progress } => {
                 *progress += self.speed as f32 / 1000.0;
                 
                 if *progress >= 1.0 {
+                    // Move to the next tile
                     self.x = to.0;
                     self.y = to.1;
-                    self.state = VehicleState::Loading;
+                    
+                    // Check if we've reached the final destination
+                    if self.path_index >= self.current_path.len() - 1 {
+                        // Reached the station
+                        self.state = VehicleState::Loading;
+                        self.current_path.clear();
+                        self.path_index = 0;
+                    } else {
+                        // Move to next tile in path
+                        self.path_index += 1;
+                        *progress = 0.0;
+                        *to = self.current_path[self.path_index];
+                    }
                 }
             }
             VehicleState::Loading => {
@@ -267,43 +284,104 @@ impl Vehicle {
         }
     }
 
-    fn start_moving_to_next_station(&mut self) {
+    fn start_moving_to_next_station(&mut self, world: &World) {
         if let Some(&next_station) = self.route.get(self.route_index) {
-            self.state = VehicleState::Moving {
-                from: (self.x, self.y),
-                to: next_station,
-                progress: 0.0,
-            };
+            // Find path to the next station
+            if let Some(path) = self.find_path_to_station(world, next_station) {
+                if path.len() > 1 {
+                    // Set up step-by-step movement
+                    self.current_path = path;
+                    self.path_index = 1; // Start at index 1 (0 is current position)
+                    
+                    self.state = VehicleState::Moving {
+                        from: (self.x, self.y),
+                        to: self.current_path[self.path_index],
+                        progress: 0.0,
+                    };
+                } else {
+                    // Already at destination
+                    self.state = VehicleState::Loading;
+                }
+            } else {
+                // No path found - can't move
+                self.state = VehicleState::Idle;
+            }
         }
     }
 
     fn load_cargo_at_station(&mut self, world: &mut World) {
-        if let Some(tile) = world.get_tile(self.x, self.y) {
-            if let crate::world::TileContent::Station(station) = &tile.content {
-                let available_capacity = self.get_capacity() - self.cargo.values().sum::<u32>();
+        let available_capacity = self.get_capacity() - self.cargo.values().sum::<u32>();
+        
+        if available_capacity == 0 {
+            return; // Vehicle is full
+        }
+        
+        // Get mutable access to the tile
+        if let Some(tile) = world.tiles.get_mut(self.y).and_then(|row| row.get_mut(self.x)) {
+            if let crate::world::TileContent::Station(ref mut station) = tile.content {
+                let mut remaining_capacity = available_capacity;
+                let mut cargo_to_remove = Vec::new();
                 
+                // Determine what cargo to load
                 for (cargo_type, &amount) in &station.cargo_waiting {
-                    let to_load = amount.min(available_capacity);
-                    if to_load > 0 {
+                    if amount > 0 && remaining_capacity > 0 {
+                        let to_load = amount.min(remaining_capacity);
                         *self.cargo.entry(cargo_type.clone()).or_insert(0) += to_load;
+                        cargo_to_remove.push((cargo_type.clone(), to_load));
+                        remaining_capacity -= to_load;
+                    }
+                }
+                
+                // Remove loaded cargo from station
+                for (cargo_type, amount) in cargo_to_remove {
+                    if let Some(waiting_amount) = station.cargo_waiting.get_mut(&cargo_type) {
+                        *waiting_amount = waiting_amount.saturating_sub(amount);
+                        if *waiting_amount == 0 {
+                            station.cargo_waiting.remove(&cargo_type);
+                        }
                     }
                 }
             }
         }
     }
 
-    fn unload_cargo_at_station(&mut self, _world: &mut World, _economy: &mut Economy) {
+    fn unload_cargo_at_station(&mut self, world: &mut World, _economy: &mut Economy) {
         let delivered_cargo: Vec<_> = self.cargo.drain().collect();
         
         if !delivered_cargo.is_empty() {
-            self.total_deliveries += 1;
+            // Try to deliver cargo to nearby towns
+            let mut total_delivered = 0;
             
-            if rand::random::<f32>() > 0.8 {
-                self.on_time_deliveries += 1;
+            // Check nearby tiles for towns that might want this cargo
+            for dx in -2i32..=2i32 {
+                for dy in -2i32..=2i32 {
+                    let check_x = (self.x as i32 + dx).max(0).min(world.width as i32 - 1) as usize;
+                    let check_y = (self.y as i32 + dy).max(0).min(world.height as i32 - 1) as usize;
+                    
+                    if let Some(tile) = world.tiles.get_mut(check_y).and_then(|row| row.get_mut(check_x)) {
+                        if let crate::world::TileContent::Town(ref mut town) = tile.content {
+                            // Deliver all cargo types to town (simplified)
+                            for (cargo_type, amount) in &delivered_cargo {
+                                *town.cargo_demand.entry(cargo_type.clone()).or_insert(0) = 
+                                    town.cargo_demand.get(cargo_type).unwrap_or(&0).saturating_sub(*amount);
+                                total_delivered += amount;
+                            }
+                        }
+                    }
+                }
             }
             
-            let delivery_profit = self.calculate_delivery_profit();
-            self.profit += delivery_profit;
+            if total_delivered > 0 {
+                self.total_deliveries += 1;
+                
+                // Better on-time delivery rate for now
+                if rand::random::<f32>() > 0.2 {
+                    self.on_time_deliveries += 1;
+                }
+                
+                let delivery_profit = total_delivered as i64 * 50; // $50 per unit delivered
+                self.profit += delivery_profit;
+            }
         }
     }
 
@@ -320,5 +398,155 @@ impl Vehicle {
             total_distance += distance;
         }
         total_distance
+    }
+
+    // Pathfinding methods
+    fn find_path_to_station(&self, world: &World, target: (usize, usize)) -> Option<Vec<(usize, usize)>> {
+        match self.vehicle_type {
+            VehicleType::Train { .. } => self.find_train_path(world, (self.x, self.y), target),
+            VehicleType::Road { .. } => self.find_road_path(world, (self.x, self.y), target),
+            _ => {
+                // For ships and planes, use direct path for now
+                Some(vec![target])
+            }
+        }
+    }
+
+    fn find_train_path(&self, world: &World, start: (usize, usize), goal: (usize, usize)) -> Option<Vec<(usize, usize)>> {
+        // A* pathfinding for trains using only tracks and stations
+        let mut open_set = VecDeque::new();
+        let mut came_from = HashMap::new();
+        let mut g_score = HashMap::new();
+        let mut visited = HashSet::new();
+
+        open_set.push_back(start);
+        g_score.insert(start, 0);
+
+        while let Some(current) = open_set.pop_front() {
+            if current == goal {
+                // Reconstruct path
+                let mut path = Vec::new();
+                let mut current_pos = current;
+                
+                while let Some(&previous) = came_from.get(&current_pos) {
+                    path.push(current_pos);
+                    current_pos = previous;
+                }
+                path.push(start);
+                path.reverse();
+                return Some(path);
+            }
+
+            if visited.contains(&current) {
+                continue;
+            }
+            visited.insert(current);
+
+            // Check all adjacent tiles
+            let neighbors = self.get_train_neighbors(world, current);
+            for neighbor in neighbors {
+                if visited.contains(&neighbor) {
+                    continue;
+                }
+
+                let tentative_g_score = g_score.get(&current).unwrap_or(&u32::MAX) + 1;
+                
+                if tentative_g_score < *g_score.get(&neighbor).unwrap_or(&u32::MAX) {
+                    came_from.insert(neighbor, current);
+                    g_score.insert(neighbor, tentative_g_score);
+                    
+                    if !open_set.contains(&neighbor) {
+                        open_set.push_back(neighbor);
+                    }
+                }
+            }
+        }
+
+        None // No path found
+    }
+
+    fn find_road_path(&self, world: &World, start: (usize, usize), goal: (usize, usize)) -> Option<Vec<(usize, usize)>> {
+        // Simple pathfinding for road vehicles - can use roads and empty terrain
+        let mut open_set = VecDeque::new();
+        let mut came_from = HashMap::new();
+        let mut visited = HashSet::new();
+
+        open_set.push_back(start);
+
+        while let Some(current) = open_set.pop_front() {
+            if current == goal {
+                // Reconstruct path
+                let mut path = Vec::new();
+                let mut current_pos = current;
+                
+                while let Some(&previous) = came_from.get(&current_pos) {
+                    path.push(current_pos);
+                    current_pos = previous;
+                }
+                path.push(start);
+                path.reverse();
+                return Some(path);
+            }
+
+            if visited.contains(&current) {
+                continue;
+            }
+            visited.insert(current);
+
+            let neighbors = self.get_road_neighbors(world, current);
+            for neighbor in neighbors {
+                if !visited.contains(&neighbor) && !came_from.contains_key(&neighbor) {
+                    came_from.insert(neighbor, current);
+                    open_set.push_back(neighbor);
+                }
+            }
+        }
+
+        None // No path found
+    }
+
+    fn get_train_neighbors(&self, world: &World, pos: (usize, usize)) -> Vec<(usize, usize)> {
+        let mut neighbors = Vec::new();
+        let (x, y) = pos;
+
+        // Check all 4 directions
+        for (dx, dy) in [(-1, 0), (1, 0), (0, -1), (0, 1)] {
+            if let (Some(nx), Some(ny)) = (x.checked_add_signed(dx), y.checked_add_signed(dy)) {
+                if let Some(tile) = world.get_tile(nx, ny) {
+                    match &tile.content {
+                        TileContent::Track(_) | TileContent::Station(_) => {
+                            neighbors.push((nx, ny));
+                        },
+                        _ => {} // Trains can't use other tile types
+                    }
+                }
+            }
+        }
+
+        neighbors
+    }
+
+    fn get_road_neighbors(&self, world: &World, pos: (usize, usize)) -> Vec<(usize, usize)> {
+        let mut neighbors = Vec::new();
+        let (x, y) = pos;
+
+        // Check all 4 directions  
+        for (dx, dy) in [(-1, 0), (1, 0), (0, -1), (0, 1)] {
+            if let (Some(nx), Some(ny)) = (x.checked_add_signed(dx), y.checked_add_signed(dy)) {
+                if let Some(tile) = world.get_tile(nx, ny) {
+                    match &tile.content {
+                        TileContent::Road | TileContent::Station(_) | TileContent::Empty => {
+                            // Road vehicles can use roads, stations, and empty terrain
+                            if !matches!(tile.terrain, crate::world::TerrainType::Water | crate::world::TerrainType::Mountain) {
+                                neighbors.push((nx, ny));
+                            }
+                        },
+                        _ => {}
+                    }
+                }
+            }
+        }
+
+        neighbors
     }
 }

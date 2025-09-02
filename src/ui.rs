@@ -16,6 +16,7 @@ use crate::world::{Tile, World};
 use crate::economy::Economy;
 use crate::player::Player;
 
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub enum InputEvent {
     Quit,
     Move(CursorDirection),
@@ -27,10 +28,11 @@ pub enum InputEvent {
     ShowControls,
     BuildAction(BuildAction),
     VehicleOrder(VehicleOrder),
+    VehiclePurchase(VehiclePurchaseType),
     FinishRouteCreation,
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, serde::Serialize, serde::Deserialize)]
 pub enum BuildAction {
     BuildRailTrack,
     BuildTrainStation,
@@ -39,7 +41,7 @@ pub enum BuildAction {
     BuyVehicle,
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, serde::Serialize, serde::Deserialize)]
 pub enum VehicleOrder {
     GoToLocation,
     CreateRoute,
@@ -48,7 +50,19 @@ pub enum VehicleOrder {
     SendToDepot,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Copy, Debug, serde::Serialize, serde::Deserialize)]
+pub enum VehiclePurchaseType {
+    Train,
+    Bus,
+    SmallTruck,
+    LargeTruck,
+    Ship,
+    SmallPlane,
+    LargePlane,
+    Auto,
+}
+
+#[derive(Clone, Copy, Debug, serde::Serialize, serde::Deserialize)]
 pub enum CursorDirection {
     Up,
     Down,
@@ -72,6 +86,10 @@ pub struct UI {
     build_mode: Option<BuildAction>,
     vehicle_order_mode: Option<(u32, VehicleOrder)>,
     route_creation_mode: Option<(u32, Vec<(usize, usize)>)>, // (vehicle_id, waypoints)
+    show_vehicle_purchase_menu: bool,
+    vehicle_purchase_mode: Option<VehiclePurchaseType>,
+    notifications: Vec<String>,
+    notification_timer: u32,
     paused: bool,
 }
 
@@ -93,6 +111,10 @@ impl UI {
             build_mode: None,
             vehicle_order_mode: None,
             route_creation_mode: None,
+            show_vehicle_purchase_menu: false,
+            vehicle_purchase_mode: None,
+            notifications: Vec::new(),
+            notification_timer: 0,
             paused: false,
         }
     }
@@ -140,18 +162,21 @@ impl UI {
                         KeyCode::F(9) => Some(InputEvent::Load),
                         KeyCode::Char('?') => Some(InputEvent::ShowControls),
                         KeyCode::Esc => {
-                            if self.show_controls || self.show_build_menu || self.show_vehicle_menu {
+                            if self.show_controls || self.show_build_menu || self.show_vehicle_menu || self.show_vehicle_purchase_menu {
                                 self.show_controls = false;
                                 self.show_build_menu = false;
                                 self.show_vehicle_menu = false;
+                                self.show_vehicle_purchase_menu = false;
                                 self.build_mode = None;
                                 self.vehicle_order_mode = None;
                                 self.route_creation_mode = None;
+                                self.vehicle_purchase_mode = None;
                                 None
-                            } else if self.build_mode.is_some() || self.vehicle_order_mode.is_some() || self.route_creation_mode.is_some() {
+                            } else if self.build_mode.is_some() || self.vehicle_order_mode.is_some() || self.route_creation_mode.is_some() || self.vehicle_purchase_mode.is_some() {
                                 self.build_mode = None;
                                 self.vehicle_order_mode = None;
                                 self.route_creation_mode = None;
+                                self.vehicle_purchase_mode = None;
                                 None
                             } else {
                                 None
@@ -176,7 +201,8 @@ impl UI {
                         },
                         KeyCode::Char('5') if self.show_build_menu => {
                             self.show_build_menu = false;
-                            Some(InputEvent::BuildAction(BuildAction::BuyVehicle))
+                            self.show_vehicle_purchase_menu = true;
+                            None
                         },
                         // Vehicle menu number keys
                         KeyCode::Char('1') if self.show_vehicle_menu => {
@@ -198,6 +224,39 @@ impl UI {
                         KeyCode::Char('5') if self.show_vehicle_menu => {
                             self.show_vehicle_menu = false;
                             Some(InputEvent::VehicleOrder(VehicleOrder::SendToDepot))
+                        },
+                        // Vehicle purchase menu number keys
+                        KeyCode::Char('1') if self.show_vehicle_purchase_menu => {
+                            self.show_vehicle_purchase_menu = false;
+                            Some(InputEvent::VehiclePurchase(VehiclePurchaseType::Train))
+                        },
+                        KeyCode::Char('2') if self.show_vehicle_purchase_menu => {
+                            self.show_vehicle_purchase_menu = false;
+                            Some(InputEvent::VehiclePurchase(VehiclePurchaseType::Bus))
+                        },
+                        KeyCode::Char('3') if self.show_vehicle_purchase_menu => {
+                            self.show_vehicle_purchase_menu = false;
+                            Some(InputEvent::VehiclePurchase(VehiclePurchaseType::SmallTruck))
+                        },
+                        KeyCode::Char('4') if self.show_vehicle_purchase_menu => {
+                            self.show_vehicle_purchase_menu = false;
+                            Some(InputEvent::VehiclePurchase(VehiclePurchaseType::LargeTruck))
+                        },
+                        KeyCode::Char('5') if self.show_vehicle_purchase_menu => {
+                            self.show_vehicle_purchase_menu = false;
+                            Some(InputEvent::VehiclePurchase(VehiclePurchaseType::Ship))
+                        },
+                        KeyCode::Char('6') if self.show_vehicle_purchase_menu => {
+                            self.show_vehicle_purchase_menu = false;
+                            Some(InputEvent::VehiclePurchase(VehiclePurchaseType::SmallPlane))
+                        },
+                        KeyCode::Char('7') if self.show_vehicle_purchase_menu => {
+                            self.show_vehicle_purchase_menu = false;
+                            Some(InputEvent::VehiclePurchase(VehiclePurchaseType::LargePlane))
+                        },
+                        KeyCode::Char('0') if self.show_vehicle_purchase_menu => {
+                            self.show_vehicle_purchase_menu = false;
+                            Some(InputEvent::VehiclePurchase(VehiclePurchaseType::Auto))
                         },
                         _ => None,
                     });
@@ -282,11 +341,30 @@ impl UI {
     }
 
     pub fn add_waypoint_to_route(&mut self, x: usize, y: usize) -> bool {
-        if let Some((vehicle_id, ref mut waypoints)) = self.route_creation_mode {
+        if let Some((_vehicle_id, ref mut waypoints)) = self.route_creation_mode {
             waypoints.push((x, y));
             true
         } else {
             false
+        }
+    }
+
+    pub fn add_notification(&mut self, message: String) {
+        self.notifications.push(message);
+        self.notification_timer = 300; // Show for 5 seconds at 60 FPS
+        
+        // Keep only the last 5 notifications
+        if self.notifications.len() > 5 {
+            self.notifications.remove(0);
+        }
+    }
+
+    pub fn update_notifications(&mut self) {
+        if self.notification_timer > 0 {
+            self.notification_timer -= 1;
+            if self.notification_timer == 0 {
+                self.notifications.clear();
+            }
         }
     }
 
@@ -295,6 +373,9 @@ impl UI {
     }
 
     pub fn render(&mut self, world: &World, _economy: &Economy, player: &Player) -> Result<(), Box<dyn std::error::Error>> {
+        // Update notifications timer
+        self.update_notifications();
+        
         let cursor_x = self.cursor_x;
         let cursor_y = self.cursor_y;
         let camera_x = self.camera_x;
@@ -305,6 +386,7 @@ impl UI {
         let show_build_menu = self.show_build_menu;
         let show_controls = self.show_controls;
         let show_vehicle_menu = self.show_vehicle_menu;
+        let show_vehicle_purchase_menu = self.show_vehicle_purchase_menu;
         let selected_vehicle_id = self.selected_vehicle_id;
         let build_mode = self.build_mode;
         let vehicle_order_mode = self.vehicle_order_mode;
@@ -326,6 +408,11 @@ impl UI {
                 Self::render_game_area_static(f, chunks[1], world, &player.vehicles, cursor_x, cursor_y, camera_x, camera_y, view_width, view_height);
                 Self::render_info_panel_static(f, chunks[2], cursor_x, cursor_y, &selected_tile, build_mode, &player.vehicles);
 
+                // Render notifications
+                if !self.notifications.is_empty() && self.notification_timer > 0 {
+                    Self::render_notifications_static(f, f.size(), &self.notifications);
+                }
+
                 if show_build_menu {
                     Self::render_build_menu_static(f, f.size());
                 }
@@ -339,6 +426,9 @@ impl UI {
                         Self::render_vehicle_menu_static(f, f.size(), vehicle_id, &player.vehicles);
                     }
                 }
+                if show_vehicle_purchase_menu {
+                    Self::render_vehicle_purchase_menu_static(f, f.size());
+                }
             })?;
         }
         Ok(())
@@ -351,10 +441,10 @@ impl UI {
                 BuildAction::BuildTrainStation => "BUILD: Train Station".to_string(),
                 BuildAction::BuildRoad => "BUILD: Road".to_string(),
                 BuildAction::BuildBusStop => "BUILD: Bus Stop".to_string(),
-                BuildAction::BuyVehicle => "BUILD: Buy Vehicle".to_string(),
+                BuildAction::BuyVehicle => "PURCHASE: Select Vehicle Type".to_string(),
             }
         } else if let Some((vehicle_id, waypoints)) = route_creation_mode {
-            format!("ROUTE: Vehicle {} ({} waypoints) - Click stations, ENTER to finish", vehicle_id, waypoints.len())
+            format!("ROUTE: Vehicle {} ({} waypoints) - Move cursor to station, SPACE to add, ENTER to finish", vehicle_id, waypoints.len())
         } else if let Some((vehicle_id, order)) = vehicle_order_mode {
             let order_text = match order {
                 VehicleOrder::GoToLocation => "Go To Location",
@@ -416,7 +506,7 @@ impl UI {
                 BuildAction::BuildTrainStation => ("Building Train Station", "Cost: $50,000"),
                 BuildAction::BuildRoad => ("Building Road", "Cost: $5,000"),
                 BuildAction::BuildBusStop => ("Building Bus Stop", "Cost: $25,000"),
-                BuildAction::BuyVehicle => ("Select location for vehicle", "Various costs"),
+                BuildAction::BuyVehicle => ("Choose vehicle type menu", "Various costs"),
             };
             format!(
                 "BUILD MODE: {}\n{}\nCursor: ({}, {})\nClick to build, ESC to cancel",
@@ -470,8 +560,12 @@ impl UI {
                     Self::format_cargo_list(&industry.cargo_output))
             },
             crate::world::TileContent::Station(station) => {
-                format!("Station: {}\nType: {:?}\nConnections: {}", 
-                    station.name, station.station_type, station.connections.len())
+                let mut cargo_info = String::new();
+                if !station.cargo_waiting.is_empty() {
+                    cargo_info = format!("\nWaiting cargo: {}", Self::format_cargo_waiting(&station.cargo_waiting));
+                }
+                format!("Station: {}\nType: {:?}\nConnections: {}{}", 
+                    station.name, station.station_type, station.connections.len(), cargo_info)
             },
             crate::world::TileContent::Track(track_type) => {
                 match track_type {
@@ -497,6 +591,22 @@ impl UI {
             cargo_list.iter().map(|c| format!("{:?}", c)).collect::<Vec<_>>().join(", ")
         } else {
             format!("{:?} and {} more", cargo_list[0], cargo_list.len() - 1)
+        }
+    }
+
+    fn format_cargo_waiting(cargo_waiting: &std::collections::HashMap<crate::world::CargoType, u32>) -> String {
+        if cargo_waiting.is_empty() {
+            "None".to_string()
+        } else {
+            let mut items: Vec<String> = cargo_waiting.iter()
+                .map(|(cargo_type, &amount)| format!("{:?} ({})", cargo_type, amount))
+                .collect();
+            items.sort();
+            if items.len() <= 3 {
+                items.join(", ")
+            } else {
+                format!("{}, {} and {} more", items[0], items[1], items.len() - 2)
+            }
         }
     }
 
@@ -533,11 +643,18 @@ impl UI {
             crate::vehicle::VehicleState::Broken => "Broken",
         };
 
+        let cargo_info = if vehicle.cargo.is_empty() {
+            "Empty".to_string()
+        } else {
+            Self::format_cargo_waiting(&vehicle.cargo)
+        };
+
         format!(
-            "VEHICLE: {}\nPosition: ({}, {})\nState: {}\nAge: {} years\nReliability: {}%\nProfit: ${}\nDeliveries: {}/{}",
+            "VEHICLE: {}\nPosition: ({}, {})\nState: {}\nCargo: {}\nAge: {} years\nReliability: {}%\nProfit: ${}\nDeliveries: {}/{}",
             vehicle_type_name,
             x, y,
             state_text,
+            cargo_info,
             vehicle.age / 365,
             vehicle.reliability,
             vehicle.profit,
@@ -680,6 +797,67 @@ impl UI {
             f.render_widget(Clear, popup_area);
             f.render_widget(paragraph, popup_area);
         }
+    }
+
+    fn render_vehicle_purchase_menu_static(
+        f: &mut Frame,
+        area: Rect,
+    ) {
+        let popup_area = Self::centered_rect_static(60, 70, area);
+
+        let block = Block::default()
+            .borders(Borders::ALL)
+            .title("Purchase Vehicle")
+            .border_style(Style::default().fg(Color::Yellow));
+
+        let menu_items = vec![
+            "1. Train (Steam) - $150,000 [Good for tracks]",
+            "2. Bus - $120,000 [Good for roads/towns]", 
+            "3. Small Truck - $75,000 [Cheap road transport]",
+            "4. Large Truck - $150,000 [Heavy road transport]", 
+            "5. Ship - $500,000 [Water transport]",
+            "6. Small Plane - $1,000,000 [Fast transport]",
+            "7. Large Plane - $2,500,000 [Long distance]",
+            "",
+            "0. Auto - Choose best for current tile",
+            "",
+            "Press number to select, ESC to cancel"
+        ];
+
+        let menu_text: Vec<Line> = menu_items
+            .iter()
+            .map(|&item| Line::from(Span::raw(item)))
+            .collect();
+
+        let paragraph = Paragraph::new(menu_text)
+            .block(block)
+            .wrap(Wrap { trim: true })
+            .alignment(Alignment::Left);
+
+        f.render_widget(Clear, popup_area);
+        f.render_widget(paragraph, popup_area);
+    }
+
+    fn render_notifications_static(f: &mut Frame, area: Rect, notifications: &[String]) {
+        // Position notifications in the top-right corner
+        let notification_area = Rect {
+            x: area.width - 40,
+            y: 1,
+            width: 38,
+            height: std::cmp::min(notifications.len() as u16 + 2, 8),
+        };
+
+        let notification_text: Vec<Line> = notifications
+            .iter()
+            .map(|notification| Line::from(Span::styled(notification, Style::default().fg(Color::Yellow))))
+            .collect();
+
+        let notification_widget = Paragraph::new(notification_text)
+            .block(Block::default().borders(Borders::ALL).title("Notifications"))
+            .style(Style::default().bg(Color::DarkGray))
+            .wrap(Wrap { trim: true });
+
+        f.render_widget(notification_widget, notification_area);
     }
 
     fn centered_rect_static(percent_x: u16, percent_y: u16, r: Rect) -> Rect {
