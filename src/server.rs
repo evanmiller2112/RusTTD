@@ -111,15 +111,6 @@ impl InputCommand {
     pub fn to_input_event(&self) -> Option<crate::ui::InputEvent> {
         match self.command_type.as_str() {
             "quit" => Some(crate::ui::InputEvent::Quit),
-            "move" => {
-                if let (Some(x), Some(y)) = (self.x, self.y) {
-                    // Convert absolute position to direction - this is simplified
-                    // In a real implementation, you'd calculate direction based on current cursor
-                    Some(crate::ui::InputEvent::Move(crate::ui::CursorDirection::Up))
-                } else {
-                    None
-                }
-            },
             "move_up" => Some(crate::ui::InputEvent::Move(crate::ui::CursorDirection::Up)),
             "move_down" => Some(crate::ui::InputEvent::Move(crate::ui::CursorDirection::Down)),
             "move_left" => Some(crate::ui::InputEvent::Move(crate::ui::CursorDirection::Left)),

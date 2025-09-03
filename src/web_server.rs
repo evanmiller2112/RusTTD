@@ -79,6 +79,7 @@ pub async fn run_server() -> Result<(), Box<dyn std::error::Error>> {
         
         // REST API endpoints
         .route("/api/state", get(get_game_state))
+        .route("/api/world", get(get_full_world_data))
         .route("/api/command", post(send_command))
         .route("/api/move", post(move_cursor))
         .route("/api/action", post(perform_action))
@@ -180,6 +181,11 @@ async fn websocket_connection(mut socket: WebSocket, state: AppState) {
 async fn get_game_state(State(state): State<AppState>) -> Json<GameRenderData> {
     let game_guard = state.game.lock().unwrap();
     Json(game_guard.get_render_data())
+}
+
+async fn get_full_world_data(State(state): State<AppState>) -> Json<crate::server::WorldRenderData> {
+    let game_guard = state.game.lock().unwrap();
+    Json(game_guard.get_full_world_data())
 }
 
 async fn send_command(

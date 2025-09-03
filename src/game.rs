@@ -28,7 +28,7 @@ pub struct Game {
 impl Game {
     pub fn new() -> Self {
         Self {
-            world: crate::world::World::new(80, 40),
+            world: crate::world::World::new(1024, 1024),
             ui: Some(crate::ui::UI::new()),
             economy: crate::economy::Economy::new(),
             player: crate::player::Player::new("Player".to_string(), 1000000),
@@ -54,7 +54,7 @@ impl Game {
 
     pub fn new_headless() -> Self {
         Self {
-            world: crate::world::World::new(80, 40),
+            world: crate::world::World::new(1024, 1024),
             ui: None, // No UI in headless mode
             economy: crate::economy::Economy::new(),
             player: crate::player::Player::new("Player".to_string(), 1000000),
@@ -120,12 +120,10 @@ impl Game {
         
         match input {
             crate::ui::InputEvent::Quit => self.running = false,
-            crate::ui::InputEvent::Move(direction) => {
-                self.move_cursor(direction);
-                // Also update UI if present
-                if let Some(ref mut ui) = self.ui {
-                    ui.move_cursor(direction);
-                }
+            crate::ui::InputEvent::Move(_direction) => {
+                // Cursor movement is now handled entirely client-side
+                // Server cursor position is updated from the cursor_pos parameter when actions occur
+                // No server-side processing needed for movement
             }
             crate::ui::InputEvent::Select => {
                 if let Some(build_action) = self.build_mode {
@@ -160,10 +158,8 @@ impl Game {
                 // Toggle pause - this would need to be implemented in the game logic
             }
             crate::ui::InputEvent::BuildMenu => {
-                self.show_build_menu = !self.show_build_menu;
-                if let Some(ref mut ui) = self.ui {
-                    ui.show_build_menu = self.show_build_menu;
-                }
+                // Build menu state is now handled entirely client-side
+                // No server-side processing needed
             }
             crate::ui::InputEvent::ShowControls => {
                 if let Some(ref mut ui) = self.ui {
@@ -171,10 +167,9 @@ impl Game {
                 }
             }
             crate::ui::InputEvent::BuildAction(build_action) => {
-                self.build_mode = Some(build_action);
-                if let Some(ref mut ui) = self.ui {
-                    ui.set_build_mode(Some(build_action));
-                }
+                // Build mode visualization is handled client-side for responsiveness
+                // Server processes the actual build command and validates/executes it
+                self.handle_build_action(build_action);
             }
             crate::ui::InputEvent::VehicleOrder(vehicle_order) => {
                 if let Some(vehicle_id) = self.selected_vehicle_id {
@@ -190,41 +185,27 @@ impl Game {
         }
     }
 
-    // Server-side cursor movement
+    // Server-side cursor movement (camera movement is now handled client-side)
     pub fn move_cursor(&mut self, direction: crate::ui::CursorDirection) {
         match direction {
             crate::ui::CursorDirection::Up => {
                 if self.cursor_y > 0 {
                     self.cursor_y -= 1;
-                    if self.cursor_y < self.camera_y {
-                        self.camera_y = self.cursor_y;
-                    }
                 }
             }
             crate::ui::CursorDirection::Down => {
                 if self.cursor_y < self.world.height - 1 {
                     self.cursor_y += 1;
-                    let view_height = 30; // Default view height
-                    if self.cursor_y >= self.camera_y + view_height {
-                        self.camera_y = self.cursor_y - view_height + 1;
-                    }
                 }
             }
             crate::ui::CursorDirection::Left => {
                 if self.cursor_x > 0 {
                     self.cursor_x -= 1;
-                    if self.cursor_x < self.camera_x {
-                        self.camera_x = self.cursor_x;
-                    }
                 }
             }
             crate::ui::CursorDirection::Right => {
                 if self.cursor_x < self.world.width - 1 {
                     self.cursor_x += 1;
-                    let view_width = 60; // Default view width
-                    if self.cursor_x >= self.camera_x + view_width {
-                        self.camera_x = self.cursor_x - view_width + 1;
-                    }
                 }
             }
         }
@@ -286,6 +267,51 @@ impl Game {
             ui_state: self.create_ui_render_state(),
             notifications: self.notifications.clone(),
             game_time: self.player.game_time,
+        }
+    }
+
+    // Create full world data for initial client load (includes all tiles)
+    pub fn get_full_world_data(&self) -> crate::server::WorldRenderData {
+        let mut tiles = Vec::new();
+        
+        // Send ALL tiles in the world
+        for y in 0..self.world.height {
+            let mut row = Vec::new();
+            for x in 0..self.world.width {
+                if let Some(tile) = self.world.get_tile(x, y) {
+                    row.push(crate::server::TileRenderData {
+                        x,
+                        y,
+                        terrain: tile.terrain.clone(),
+                        content: self.tile_content_to_render_data(&tile.content),
+                        ascii_char: self.world.get_ascii_char_with_vehicles(x, y, &self.player.vehicles),
+                        style_color: self.get_tile_style_color(x, y),
+                    });
+                }
+            }
+            tiles.push(row);
+        }
+
+        let vehicles = self.player.vehicles.iter().map(|v| {
+            crate::server::VehicleRenderData {
+                id: v.id,
+                x: v.x,
+                y: v.y,
+                vehicle_type: self.vehicle_type_to_string(&v.vehicle_type),
+                state: self.vehicle_state_to_string(&v.state),
+                cargo: v.cargo.iter().map(|(cargo_type, &amount)| {
+                    (format!("{:?}", cargo_type), amount)
+                }).collect(),
+                ascii_char: crate::world::World::get_vehicle_char(&v.vehicle_type),
+                style_color: self.get_vehicle_style_color(&v.vehicle_type),
+            }
+        }).collect();
+
+        crate::server::WorldRenderData {
+            width: self.world.width,
+            height: self.world.height,
+            tiles,
+            vehicles,
         }
     }
 
@@ -358,8 +384,8 @@ impl Game {
             camera_x: self.camera_x,
             camera_y: self.camera_y,
             selected_tile_info,
-            show_build_menu: self.show_build_menu,
-            show_vehicle_menu: self.show_vehicle_menu,
+            show_build_menu: false, // Menu state now handled client-side
+            show_vehicle_menu: false, // Menu state now handled client-side
             selected_vehicle_id: self.selected_vehicle_id,
         }
     }
@@ -495,7 +521,7 @@ impl Game {
         // Check if there's a vehicle at this position
         for vehicle in &self.player.vehicles {
             if vehicle.x == x && vehicle.y == y {
-                self.show_vehicle_menu = true;
+                // Vehicle selection is now handled client-side for menu display
                 self.selected_vehicle_id = Some(vehicle.id);
                 // Also update UI if present
                 if let Some(ref mut ui) = self.ui {
@@ -518,7 +544,7 @@ impl Game {
     fn handle_build_action(&mut self, build_action: crate::ui::BuildAction) {
         let (x, y) = (self.cursor_x, self.cursor_y);
 
-        let build_result = match build_action {
+        let _build_result = match build_action {
             crate::ui::BuildAction::BuildRailTrack => self.build_rail_track(x, y),
             crate::ui::BuildAction::BuildTrainStation => self.build_train_station(x, y),
             crate::ui::BuildAction::BuildRoad => self.build_road(x, y),
@@ -526,14 +552,8 @@ impl Game {
             crate::ui::BuildAction::BuyVehicle => self.buy_vehicle_at_location(x, y),
         };
 
-        if build_result {
-            // Build successful, exit build mode
-            self.build_mode = None;
-            if let Some(ref mut ui) = self.ui {
-                ui.set_build_mode(None);
-            }
-        }
-        // If build failed, stay in build mode so player can try again
+        // Build mode state is now managed entirely client-side
+        // Server just processes the build command and returns success/failure
     }
 
     fn build_rail_track(&mut self, x: usize, y: usize) -> bool {

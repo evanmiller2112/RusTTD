@@ -203,10 +203,19 @@ impl World {
         let mut rng = rand::thread_rng();
         let town_names = vec![
             "Springfield", "Riverside", "Madison", "Georgetown", "Franklin",
-            "Clinton", "Chester", "Marion", "Greenwood", "Fairview"
+            "Clinton", "Chester", "Marion", "Greenwood", "Fairview",
+            "Oakwood", "Hillside", "Lakeland", "Millville", "Brookfield",
+            "Westbrook", "Eastport", "Northfield", "Southgate", "Centerville",
+            "Redwood", "Bluefield", "Goldmine", "Silverton", "Irondale",
+            "Stonehaven", "Woodbridge", "Clearwater", "Brightwood", "Darkhill",
+            "Snowpeak", "Sunnydale", "Stormport", "Windham", "Thornville",
+            "Rosehaven", "Violetfield", "Crystalbrook", "Diamondville", "Pearlton",
+            "Riverton", "Mountainview", "Valleygreen", "Plainfield", "Marshland"
         ];
 
-        for i in 0..5 {
+        // Scale towns with map size: roughly 1 town per 50,000 tiles
+        let town_count = ((self.width * self.height) / 50000).max(5).min(100);
+        for i in 0..town_count {
             let x = rng.gen_range(0..self.width);
             let y = rng.gen_range(0..self.height);
 
@@ -229,7 +238,9 @@ impl World {
         use rand::Rng;
         let mut rng = rand::thread_rng();
 
-        for _ in 0..8 {
+        // Scale industries with map size: roughly 1 industry per 25,000 tiles
+        let industry_count = ((self.width * self.height) / 25000).max(8).min(200);
+        for _ in 0..industry_count {
             let x = rng.gen_range(0..self.width);
             let y = rng.gen_range(0..self.height);
 

@@ -1,4 +1,4 @@
-use RusTTD::web_server;
+use rust_ttd::web_server;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {

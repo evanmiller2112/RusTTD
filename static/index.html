@@ -32,7 +32,35 @@
             line-height: 1;
             white-space: pre;
             padding: 10px;
-            font-size: 12px;
+            font-size: 12px; /* Default fallback, will be overridden by JavaScript */
+            display: block;
+            width: fit-content;
+            height: fit-content;
+        }
+        
+        .world-grid span {
+            display: inline-block;
+            position: relative;
+        }
+        
+        .clickable-tile {
+            cursor: pointer;
+            transition: all 0.1s ease;
+            display: inline-block;
+            padding: 0;
+            margin: 0;
+            user-select: none;
+            -webkit-user-select: none;
+            -moz-user-select: none;
+            -ms-user-select: none;
+            text-align: center;
+            vertical-align: top;
+        }
+        
+        .clickable-tile:hover {
+            background-color: rgba(255, 255, 255, 0.3) !important;
+            transform: scale(1.02);
+            z-index: 10;
         }
         
         .cursor {
@@ -160,28 +188,82 @@
             color: #f00;
         }
         
-        .tile-colors {
-            /* Town */
-            .town { background-color: #000080; }
-            /* Industry */
-            .industry { background-color: #800000; }
-            /* Station */
-            .station { background-color: #008000; }
-            /* Track */
-            .track { background-color: #808000; }
-            /* Road */
-            .road { background-color: #808080; }
-            /* Terrain */
-            .grass { background-color: #228B22; }
-            .water { background-color: #0000FF; }
-            .mountain { background-color: #FFFFFF; }
-            .desert { background-color: #FFFF00; }
-            .forest { background-color: #006400; }
-            /* Vehicles */
-            .vehicle-train { background-color: #00008B; }
-            .vehicle-road { background-color: #8B0000; }
-            .vehicle-ship { background-color: #00FFFF; }
-            .vehicle-aircraft { background-color: #FF00FF; }
+        /* Color classes for tile styling */
+        .blue { color: #4A90E2; }
+        .red { color: #E74C3C; }
+        .green { color: #27AE60; }
+        .yellow { color: #F1C40F; }
+        .gray { color: #95A5A6; }
+        .lightgreen { color: #2ECC71; }
+        .darkgreen { color: #1E8449; }
+        .white { color: #ECF0F1; }
+        .darkblue { color: #2E4BC6; }
+        .darkred { color: #C0392B; }
+        .cyan { color: #1ABC9C; }
+        .magenta { color: #9B59B6; }
+        .black { color: #2C3E50; }
+        
+        /* Build mode indicators */
+        .build-mode-active {
+            cursor: crosshair;
+        }
+        
+        .build-preview-valid {
+            background-color: rgba(39, 174, 96, 0.3) !important;
+            border: 2px dashed #27AE60 !important;
+        }
+        
+        .build-preview-invalid {
+            background-color: rgba(231, 76, 60, 0.3) !important;
+            border: 2px dashed #E74C3C !important;
+        }
+        
+        .build-mode-rail .cursor {
+            background-color: rgba(241, 196, 15, 0.8) !important;
+        }
+        
+        .build-mode-station .cursor {
+            background-color: rgba(39, 174, 96, 0.8) !important;
+        }
+        
+        .build-mode-road .cursor {
+            background-color: rgba(149, 165, 166, 0.8) !important;
+        }
+        
+        .build-mode-bus_stop .cursor {
+            background-color: rgba(52, 152, 219, 0.8) !important;
+        }
+        
+        .build-button-active {
+            background: #27AE60 !important;
+            color: #fff !important;
+            border: 2px solid #27AE60 !important;
+        }
+        
+        .build-keyboard-mode {
+            background: rgba(241, 196, 15, 0.2) !important;
+            border: 2px dashed #F1C40F !important;
+            animation: pulse 1s infinite;
+        }
+        
+        @keyframes pulse {
+            0% { opacity: 1; }
+            50% { opacity: 0.7; }
+            100% { opacity: 1; }
+        }
+        
+        .keyboard-hint {
+            background: #F1C40F;
+            color: #000;
+            padding: 5px;
+            border-radius: 3px;
+            font-size: 12px;
+            font-weight: bold;
+            display: none;
+        }
+        
+        .keyboard-hint.active {
+            display: block;
         }
     </style>
 </head>
@@ -221,7 +303,7 @@
                 <div class="info-title">Controls</div>
                 <div class="controls">
                     <button onclick="move('up')">▲</button>
-                    <button onclick="performAction('build_menu')">Build</button>
+                    <button onclick="toggleBuildMenuClient()">Build</button>
                     <button onclick="performAction('select')">Select</button>
                     <button onclick="move('left')">◄</button>
                     <button onclick="performAction('save')">Save</button>
@@ -233,21 +315,23 @@
             </div>
             
             <div id="buildMenu" class="info-section build-menu">
-                <div class="info-title">Build Menu</div>
-                <button onclick="buildAction('rail')">🚆 Rail Track ($10k)</button>
-                <button onclick="buildAction('station')">🏢 Train Station ($50k)</button>
-                <button onclick="buildAction('road')">🛣️ Road ($5k)</button>
-                <button onclick="buildAction('bus_stop')">🚌 Bus Stop ($25k)</button>
+                <div class="info-title">Build Menu (B + Number)</div>
+                <div id="keyboardHint" class="keyboard-hint">⌨️ Press 1-4 to select, or ESC to cancel</div>
+                <button onclick="buildAction('rail')">🚆 <u>1</u>. Rail Track ($10k)</button>
+                <button onclick="buildAction('station')">🏢 <u>2</u>. Train Station ($50k)</button>
+                <button onclick="buildAction('road')">🛣️ <u>3</u>. Road ($5k)</button>
+                <button onclick="buildAction('bus_stop')">🚌 <u>4</u>. Bus Stop ($25k)</button>
                 <div style="margin-top: 10px;">
-                    <div class="info-title">Purchase Vehicles</div>
-                    <button onclick="purchaseVehicle('auto')">🎯 Auto Select</button>
-                    <button onclick="purchaseVehicle('train')">🚂 Train</button>
-                    <button onclick="purchaseVehicle('bus')">🚌 Bus</button>
-                    <button onclick="purchaseVehicle('small_truck')">🚚 Small Truck</button>
-                    <button onclick="purchaseVehicle('large_truck')">🚛 Large Truck</button>
-                    <button onclick="purchaseVehicle('ship')">🚢 Ship</button>
-                    <button onclick="purchaseVehicle('small_plane')">✈️ Small Plane</button>
-                    <button onclick="purchaseVehicle('large_plane')">🛩️ Large Plane</button>
+                    <div class="info-title">Purchase Vehicles (V + Number)</div>
+                    <div id="vehicleKeyboardHint" class="keyboard-hint">⌨️ Press 1-8 to purchase, or ESC to cancel</div>
+                    <button onclick="purchaseVehicle('auto')">🎯 <u>1</u>. Auto Select</button>
+                    <button onclick="purchaseVehicle('train')">🚂 <u>2</u>. Train</button>
+                    <button onclick="purchaseVehicle('bus')">🚌 <u>3</u>. Bus</button>
+                    <button onclick="purchaseVehicle('small_truck')">🚚 <u>4</u>. Small Truck</button>
+                    <button onclick="purchaseVehicle('large_truck')">🚛 <u>5</u>. Large Truck</button>
+                    <button onclick="purchaseVehicle('ship')">🚢 <u>6</u>. Ship</button>
+                    <button onclick="purchaseVehicle('small_plane')">✈️ <u>7</u>. Small Plane</button>
+                    <button onclick="purchaseVehicle('large_plane')">🛩️ <u>8</u>. Large Plane</button>
                 </div>
             </div>
             
@@ -276,6 +360,430 @@
         let lastFrameTime = 0;
         let frameCount = 0;
         let fps = 0;
+        
+        // Client-side cursor state
+        let clientCursor = {
+            x: 0,
+            y: 0
+        };
+        
+        // Client-side camera state
+        let clientCamera = {
+            x: 0,
+            y: 0
+        };
+        
+        // Client-side menu state
+        let showBuildMenu = false;
+        let showVehicleMenu = false;
+        let selectedVehicleId = null;
+        
+        // Client-side build mode state
+        let buildMode = null; // 'rail', 'station', 'road', 'bus_stop', null
+        let buildModeActive = false;
+        
+        // Build menu keyboard state
+        let buildMenuKeyboardMode = false; // True when waiting for number key after 'B'
+        let buildMenuKeyboardTimeout = null;
+        
+        // Vehicle purchase keyboard state
+        let vehiclePurchaseKeyboardMode = false; // True when waiting for number key after 'V'
+        let vehiclePurchaseKeyboardTimeout = null;
+        
+        // Full world tile data cache for client-side tile information
+        let fullWorldData = null;
+        
+        // Dynamic font size calculation
+        function calculateOptimalFontSize() {
+            const availableWidth = window.innerWidth - 320; // minus info panel + margins
+            const availableHeight = window.innerHeight - 120; // minus status bar + margins
+            const tilesWide = 60; // from server view_width
+            const tilesTall = 30; // from server view_height
+            
+            // Calculate font size based on available space
+            // Monospace fonts typically have width:height ratio of ~0.6
+            const fontWidth = availableWidth / tilesWide;
+            const fontHeight = availableHeight / tilesTall;
+            
+            // Use the smaller dimension to ensure everything fits
+            // Adjust by 0.8 to account for monospace character spacing
+            return Math.floor(Math.min(fontWidth * 0.8, fontHeight * 0.6));
+        }
+        
+        // Apply calculated font size to the world grid
+        function updateWorldGridSize() {
+            const fontSize = calculateOptimalFontSize();
+            const worldGrid = document.getElementById('worldGrid');
+            if (worldGrid && fontSize > 6) { // minimum readable size
+                worldGrid.style.fontSize = fontSize + 'px';
+                console.log('Updated world grid font size to:', fontSize + 'px');
+            }
+        }
+        
+        // Fetch full world data for client-side tile information
+        async function loadFullWorldData() {
+            try {
+                const response = await fetch('/api/world');
+                if (response.ok) {
+                    fullWorldData = await response.json();
+                    console.log('Loaded full world data:', fullWorldData.width + 'x' + fullWorldData.height, 'tiles');
+                    
+                    // Update tile info immediately if cursor is already positioned
+                    updateSelectedTileInfo();
+                } else {
+                    console.error('Failed to load world data:', response.status);
+                }
+            } catch (error) {
+                console.error('Error loading world data:', error);
+            }
+        }
+        
+        // Get terrain name from terrain type
+        function getTerrainName(terrain) {
+            switch(terrain) {
+                case 'Grass': return 'Grassland';
+                case 'Water': return 'Water';
+                case 'Mountain': return 'Mountain';
+                case 'Desert': return 'Desert';
+                case 'Forest': return 'Forest';
+                default: return 'Unknown';
+            }
+        }
+        
+        // Client-side tile info formatter (mirrors server-side format_tile_info)
+        function formatTileInfo(tileData) {
+            if (!tileData) return 'Nothing selected';
+            
+            switch(tileData.content.type || (typeof tileData.content === 'string' ? tileData.content : 'Empty')) {
+                case 'Empty':
+                    return getTerrainName(tileData.terrain);
+                    
+                case 'Town':
+                    return `Town: ${tileData.content.name}\nPopulation: ${tileData.content.population}\nTerrain: ${tileData.terrain}`;
+                    
+                case 'Industry':
+                    return `Industry: ${tileData.content.industry_type}\nProduction: ${tileData.content.production_rate}/month\nTerrain: ${tileData.terrain}`;
+                    
+                case 'Station':
+                    return `Station: ${tileData.content.name}\nType: ${tileData.content.station_type}\nTerrain: ${tileData.terrain}`;
+                    
+                case 'Track':
+                    return `Railway Track\nTerrain: ${tileData.terrain}`;
+                    
+                case 'Road':
+                    return `Road\nTerrain: ${tileData.terrain}`;
+                    
+                default:
+                    return `${getTerrainName(tileData.terrain)}\nType: ${tileData.content}`;
+            }
+        }
+        
+        // Get tile data from full world cache
+        function getTileData(x, y) {
+            if (!fullWorldData || !fullWorldData.tiles) return null;
+            if (y < 0 || y >= fullWorldData.tiles.length) return null;
+            if (x < 0 || x >= fullWorldData.tiles[y].length) return null;
+            return fullWorldData.tiles[y][x];
+        }
+        
+        // Get tile data prioritizing live server data over cache (server-authoritative)
+        function getLiveOrCachedTileData(x, y) {
+            // 1. Try live server data first (authoritative for buildings/changes)
+            if (gameState && gameState.world_data && gameState.world_data.tiles) {
+                // Server sends viewport data - check if this tile is in current viewport
+                for (let row of gameState.world_data.tiles) {
+                    for (let tile of row) {
+                        if (tile.x === x && tile.y === y) {
+                            return tile; // Found in live server data - this is authoritative
+                        }
+                    }
+                }
+            }
+            
+            // 2. Fallback to cache for areas not covered by server viewport
+            return getTileData(x, y);
+        }
+        
+        // Update selected tile info using server-authoritative data
+        function updateSelectedTileInfo() {
+            const tileData = getLiveOrCachedTileData(clientCursor.x, clientCursor.y);
+            const selectedTileElement = document.getElementById('selectedTileInfo');
+            selectedTileElement.textContent = formatTileInfo(tileData);
+        }
+        
+        // Client-side camera movement logic
+        function updateClientCamera() {
+            if (!fullWorldData) return;
+            
+            const viewWidth = 60;  // viewport width in tiles
+            const viewHeight = 30; // viewport height in tiles
+            const worldWidth = fullWorldData.width;
+            const worldHeight = fullWorldData.height;
+            
+            // Update camera X to follow cursor
+            if (clientCursor.x < clientCamera.x) {
+                clientCamera.x = clientCursor.x;
+            } else if (clientCursor.x >= clientCamera.x + viewWidth) {
+                clientCamera.x = clientCursor.x - viewWidth + 1;
+            }
+            
+            // Update camera Y to follow cursor
+            if (clientCursor.y < clientCamera.y) {
+                clientCamera.y = clientCursor.y;
+            } else if (clientCursor.y >= clientCamera.y + viewHeight) {
+                clientCamera.y = clientCursor.y - viewHeight + 1;
+            }
+            
+            // Clamp camera to world boundaries
+            clientCamera.x = Math.max(0, Math.min(clientCamera.x, worldWidth - viewWidth));
+            clientCamera.y = Math.max(0, Math.min(clientCamera.y, worldHeight - viewHeight));
+            
+            console.log('Client camera updated to:', clientCamera.x, clientCamera.y);
+        }
+        
+        // Client-side menu management
+        function toggleBuildMenuClient() {
+            showBuildMenu = !showBuildMenu;
+            updateMenuDisplay();
+            console.log('Build menu toggled to:', showBuildMenu);
+        }
+        
+        function showBuildMenuClient() {
+            showBuildMenu = true;
+            updateMenuDisplay();
+            console.log('Build menu shown');
+        }
+        
+        function hideBuildMenuClient() {
+            showBuildMenu = false;
+            updateMenuDisplay();
+            console.log('Build menu hidden');
+        }
+        
+        function showVehicleMenuClient(vehicleId) {
+            selectedVehicleId = vehicleId;
+            showVehicleMenu = true;
+            updateMenuDisplay();
+            console.log('Vehicle menu shown for vehicle:', vehicleId);
+        }
+        
+        function hideVehicleMenuClient() {
+            selectedVehicleId = null;
+            showVehicleMenu = false;
+            updateMenuDisplay();
+            console.log('Vehicle menu hidden');
+        }
+        
+        function updateMenuDisplay() {
+            const buildMenu = document.getElementById('buildMenu');
+            const vehicleMenu = document.getElementById('vehicleMenu');
+            
+            if (buildMenu) {
+                buildMenu.classList.toggle('active', showBuildMenu);
+            }
+            
+            if (vehicleMenu) {
+                vehicleMenu.classList.toggle('active', showVehicleMenu);
+            }
+        }
+        
+        // Client-side build mode management
+        function setBuildMode(mode) {
+            buildMode = mode;
+            buildModeActive = !!mode;
+            
+            // Update body classes for global build mode styling
+            document.body.classList.toggle('build-mode-active', buildModeActive);
+            
+            // Remove all build mode classes first
+            document.body.classList.remove('build-mode-rail', 'build-mode-station', 'build-mode-road', 'build-mode-bus_stop');
+            
+            // Add specific build mode class
+            if (mode) {
+                document.body.classList.add(`build-mode-${mode}`);
+                console.log(`Build mode activated: ${mode}`);
+            } else {
+                console.log('Build mode deactivated');
+            }
+            
+            // Update button highlighting
+            updateBuildButtonHighlighting();
+            
+            // Re-render to show cursor changes
+            renderWorld();
+        }
+        
+        function updateBuildButtonHighlighting() {
+            // Remove active class from all build buttons
+            const buildButtons = ['rail', 'station', 'road', 'bus_stop'];
+            buildButtons.forEach(type => {
+                const button = document.querySelector(`button[onclick*="${type}"]`);
+                if (button) {
+                    button.classList.remove('build-button-active');
+                }
+            });
+            
+            // Add active class to current build mode button
+            if (buildMode) {
+                const activeButton = document.querySelector(`button[onclick*="${buildMode}"]`);
+                if (activeButton) {
+                    activeButton.classList.add('build-button-active');
+                }
+            }
+        }
+        
+        // Handle keyboard build shortcuts
+        function handleBuildKeyboard() {
+            buildMenuKeyboardMode = true;
+            showBuildMenuClient(); // Show the build menu
+            
+            // Show keyboard hint and highlight build menu
+            const keyboardHint = document.getElementById('keyboardHint');
+            const buildMenu = document.getElementById('buildMenu');
+            if (keyboardHint) keyboardHint.classList.add('active');
+            if (buildMenu) buildMenu.classList.add('build-keyboard-mode');
+            
+            // Clear any existing timeout
+            if (buildMenuKeyboardTimeout) {
+                clearTimeout(buildMenuKeyboardTimeout);
+            }
+            
+            // Set timeout to exit keyboard mode after 3 seconds
+            buildMenuKeyboardTimeout = setTimeout(() => {
+                exitBuildKeyboardMode();
+                console.log('Build keyboard mode timed out');
+            }, 3000);
+            
+            console.log('Build keyboard mode activated. Press 1-4 for build options.');
+        }
+        
+        function exitBuildKeyboardMode() {
+            buildMenuKeyboardMode = false;
+            
+            // Hide keyboard hint and remove highlight
+            const keyboardHint = document.getElementById('keyboardHint');
+            const buildMenu = document.getElementById('buildMenu');
+            if (keyboardHint) keyboardHint.classList.remove('active');
+            if (buildMenu) buildMenu.classList.remove('build-keyboard-mode');
+            
+            if (buildMenuKeyboardTimeout) {
+                clearTimeout(buildMenuKeyboardTimeout);
+                buildMenuKeyboardTimeout = null;
+            }
+        }
+        
+        function handleBuildNumberKey(num) {
+            if (!buildMenuKeyboardMode) return false;
+            
+            // Clear keyboard mode
+            exitBuildKeyboardMode();
+            
+            // Map numbers to build actions
+            const buildActions = {
+                '1': 'rail',
+                '2': 'station', 
+                '3': 'road',
+                '4': 'bus_stop'
+            };
+            
+            const action = buildActions[num];
+            if (action) {
+                setBuildMode(action);
+                console.log(`Keyboard shortcut: B+${num} = ${action}`);
+                return true;
+            }
+            
+            return false;
+        }
+        
+        // Handle keyboard vehicle purchase shortcuts
+        function handleVehiclePurchaseKeyboard() {
+            vehiclePurchaseKeyboardMode = true;
+            showBuildMenuClient(); // Show the build menu (which contains vehicles)
+            
+            // Show vehicle keyboard hint and highlight purchase section
+            const vehicleKeyboardHint = document.getElementById('vehicleKeyboardHint');
+            const vehicleSection = document.querySelector('div[style*="margin-top: 10px"]'); // The vehicle section div
+            if (vehicleKeyboardHint) vehicleKeyboardHint.classList.add('active');
+            if (vehicleSection) vehicleSection.classList.add('build-keyboard-mode');
+            
+            // Clear any existing timeout
+            if (vehiclePurchaseKeyboardTimeout) {
+                clearTimeout(vehiclePurchaseKeyboardTimeout);
+            }
+            
+            // Set timeout to exit keyboard mode after 3 seconds
+            vehiclePurchaseKeyboardTimeout = setTimeout(() => {
+                exitVehiclePurchaseKeyboardMode();
+                console.log('Vehicle purchase keyboard mode timed out');
+            }, 3000);
+            
+            console.log('Vehicle purchase keyboard mode activated. Press 1-8 for vehicle options.');
+        }
+        
+        function exitVehiclePurchaseKeyboardMode() {
+            vehiclePurchaseKeyboardMode = false;
+            
+            // Hide vehicle keyboard hint and remove highlight
+            const vehicleKeyboardHint = document.getElementById('vehicleKeyboardHint');
+            const vehicleSection = document.querySelector('div[style*="margin-top: 10px"]'); // The vehicle section div
+            if (vehicleKeyboardHint) vehicleKeyboardHint.classList.remove('active');
+            if (vehicleSection) vehicleSection.classList.remove('build-keyboard-mode');
+            
+            if (vehiclePurchaseKeyboardTimeout) {
+                clearTimeout(vehiclePurchaseKeyboardTimeout);
+                vehiclePurchaseKeyboardTimeout = null;
+            }
+        }
+        
+        function handleVehiclePurchaseNumberKey(num) {
+            if (!vehiclePurchaseKeyboardMode) return false;
+            
+            // Clear keyboard mode
+            exitVehiclePurchaseKeyboardMode();
+            
+            // Map numbers to vehicle types
+            const vehicleTypes = {
+                '1': 'auto',
+                '2': 'train', 
+                '3': 'bus',
+                '4': 'small_truck',
+                '5': 'large_truck',
+                '6': 'ship',
+                '7': 'small_plane',
+                '8': 'large_plane'
+            };
+            
+            const vehicleType = vehicleTypes[num];
+            if (vehicleType) {
+                purchaseVehicle(vehicleType);
+                console.log(`Keyboard shortcut: V+${num} = ${vehicleType}`);
+                return true;
+            }
+            
+            return false;
+        }
+        
+        function canBuildAt(x, y, buildType) {
+            const tileData = getLiveOrCachedTileData(x, y);
+            if (!tileData) return false;
+            
+            // Basic validation rules (mirrors server-side logic)
+            switch(buildType) {
+                case 'rail':
+                case 'station':
+                case 'road':
+                case 'bus_stop':
+                    // Can't build on water
+                    if (tileData.terrain === 'Water') return false;
+                    // Can't build on occupied tiles
+                    if (tileData.content && typeof tileData.content === 'object' && tileData.content.type !== 'Empty') return false;
+                    if (typeof tileData.content === 'string' && tileData.content !== 'Empty') return false;
+                    return true;
+                default:
+                    return false;
+            }
+        }
         
         // Connection management
         function connect() {
@@ -323,55 +831,178 @@
         
         // Send command to server
         function sendCommand(command) {
+            console.log('Attempting to send command:', command);
             if (socket && socket.readyState === WebSocket.OPEN) {
+                console.log('WebSocket is open, sending...');
                 socket.send(JSON.stringify(command));
+            } else {
+                console.log('WebSocket not ready, state:', socket ? socket.readyState : 'no socket');
             }
         }
         
         // Movement controls
         function move(direction) {
-            sendCommand({
-                command_type: 'move_' + direction
-            });
+            // Update client cursor based on direction
+            if (!gameState || !gameState.world_data) return;
+            
+            const world = gameState.world_data;
+            const maxX = world.tiles[0] ? world.tiles[0].length - 1 : 0;
+            const maxY = world.tiles.length - 1;
+            
+            switch(direction) {
+                case 'up':
+                    if (clientCursor.y > 0) clientCursor.y--;
+                    break;
+                case 'down':
+                    if (clientCursor.y < maxY) clientCursor.y++;
+                    break;
+                case 'left':
+                    if (clientCursor.x > 0) clientCursor.x--;
+                    break;
+                case 'right':
+                    if (clientCursor.x < maxX) clientCursor.x++;
+                    break;
+            }
+            
+            console.log('Moved cursor to:', clientCursor.x, clientCursor.y);
+            
+            // Update camera to follow cursor (client-side)
+            updateClientCamera();
+            
+            // Update tile info immediately when cursor moves
+            updateSelectedTileInfo();
+            
+            renderWorld();
+            
+            // In build mode, update build button highlighting if buildability changes
+            if (buildModeActive) {
+                updateBuildButtonHighlighting();
+            }
         }
         
         // Action controls
         function performAction(action) {
+            if (action === 'select') {
+                // If in build mode, execute build action instead of select
+                if (buildModeActive && executeBuildAction()) {
+                    return; // Build action executed successfully
+                }
+            }
+            
             sendCommand({
-                command_type: action
+                command_type: action,
+                x: clientCursor.x,
+                y: clientCursor.y
             });
         }
         
-        // Build actions
+        // Build actions - now sets client-side build mode
         function buildAction(action) {
+            if (buildMode === action) {
+                // Clicking the same build button deactivates build mode
+                setBuildMode(null);
+            } else {
+                // Activate build mode for this action
+                setBuildMode(action);
+            }
+        }
+        
+        // Execute build action when in build mode
+        function executeBuildAction() {
+            if (!buildMode) return false;
+            
+            // Check if we can build at cursor position
+            if (!canBuildAt(clientCursor.x, clientCursor.y, buildMode)) {
+                console.log(`Cannot build ${buildMode} at (${clientCursor.x}, ${clientCursor.y})`);
+                return false;
+            }
+            
+            // Send build command to server
             sendCommand({
-                command_type: 'build_' + action
+                command_type: 'build_' + buildMode,
+                x: clientCursor.x,
+                y: clientCursor.y
             });
+            
+            console.log(`Building ${buildMode} at (${clientCursor.x}, ${clientCursor.y})`);
+            
+            // Exit build mode after building (optional - could keep active for multiple builds)
+            setBuildMode(null);
+            return true;
         }
         
         // Vehicle purchase
         function purchaseVehicle(vehicleType) {
             sendCommand({
-                command_type: 'buy_' + vehicleType
+                command_type: 'buy_' + vehicleType,
+                x: clientCursor.x,
+                y: clientCursor.y
             });
         }
         
         // Vehicle orders
         function vehicleOrder(order) {
             sendCommand({
-                command_type: 'vehicle_' + order
+                command_type: 'vehicle_' + order,
+                x: clientCursor.x,
+                y: clientCursor.y
             });
         }
         
-        // Toggle build menu
+        // Mouse click handler for tiles
+        function clickTile(x, y) {
+            console.log('Clicked tile at coordinates:', x, y);
+            
+            // Update client-side cursor immediately
+            clientCursor.x = Number(x);
+            clientCursor.y = Number(y);
+            
+            console.log('Client cursor moved to:', clientCursor.x, clientCursor.y);
+            
+            // Check if there's a vehicle at this position for vehicle selection
+            if (gameState && gameState.world_data && gameState.world_data.vehicles) {
+                const vehicle = gameState.world_data.vehicles.find(v => v.x === x && v.y === y);
+                if (vehicle) {
+                    showVehicleMenuClient(vehicle.id);
+                    console.log('Selected vehicle:', vehicle.id);
+                } else {
+                    // No vehicle clicked, hide vehicle menu if shown
+                    if (showVehicleMenu) {
+                        hideVehicleMenuClient();
+                    }
+                }
+            }
+            
+            // Update camera to follow cursor (client-side)
+            updateClientCamera();
+            
+            // Update tile info immediately when clicking on a tile
+            updateSelectedTileInfo();
+            
+            // Force a re-render to show the cursor change immediately
+            renderWorld();
+        }
+        
+        // Toggle build menu (now client-side)
         function toggleBuildMenu() {
-            const menu = document.getElementById('buildMenu');
-            menu.classList.toggle('active');
+            toggleBuildMenuClient();
         }
         
         // Update display with game state
         function updateDisplay() {
             if (!gameState) return;
+            
+            // Initialize client cursor and camera from server state if not set
+            if (gameState.ui_state && clientCursor.x === 0 && clientCursor.y === 0) {
+                clientCursor.x = gameState.ui_state.cursor_x || 0;
+                clientCursor.y = gameState.ui_state.cursor_y || 0;
+                clientCamera.x = gameState.ui_state.camera_x || 0;
+                clientCamera.y = gameState.ui_state.camera_y || 0;
+                console.log('Initialized client cursor to:', clientCursor.x, clientCursor.y);
+                console.log('Initialized client camera to:', clientCamera.x, clientCamera.y);
+                // Force an immediate render since this is the first state
+                renderWorld();
+            }
             
             // Update FPS counter
             const now = Date.now();
@@ -390,38 +1021,18 @@
             document.getElementById('vehicleCount').textContent = player.vehicle_count;
             document.getElementById('reputation').textContent = player.reputation;
             
-            // Update cursor and camera info
-            const ui = gameState.ui_state;
-            document.getElementById('cursorX').textContent = ui.cursor_x;
-            document.getElementById('cursorY').textContent = ui.cursor_y;
-            document.getElementById('cameraX').textContent = ui.camera_x;
-            document.getElementById('cameraY').textContent = ui.camera_y;
+            // Update cursor and camera info (use client-side values)
+            document.getElementById('cursorX').textContent = clientCursor.x;
+            document.getElementById('cursorY').textContent = clientCursor.y;
+            document.getElementById('cameraX').textContent = clientCamera.x;
+            document.getElementById('cameraY').textContent = clientCamera.y;
             
-            // Update selected tile info
-            const selectedTileElement = document.getElementById('selectedTileInfo');
-            if (ui.selected_tile_info) {
-                selectedTileElement.textContent = ui.selected_tile_info;
-            } else {
-                selectedTileElement.textContent = 'Nothing selected';
-            }
+            // Selected tile info is now handled client-side via updateSelectedTileInfo()
             
             // Update game time
             document.getElementById('gameTime').textContent = gameState.game_time;
             
-            // Show/hide menus
-            const buildMenu = document.getElementById('buildMenu');
-            if (ui.show_build_menu) {
-                buildMenu.classList.add('active');
-            } else {
-                buildMenu.classList.remove('active');
-            }
-            
-            const vehicleMenu = document.getElementById('vehicleMenu');
-            if (ui.show_vehicle_menu) {
-                vehicleMenu.classList.add('active');
-            } else {
-                vehicleMenu.classList.remove('active');
-            }
+            // Menu state is now handled client-side via updateMenuDisplay()
             
             // Update notifications
             updateNotifications();
@@ -430,22 +1041,36 @@
             renderWorld();
         }
         
-        // Render the game world
+        // Render the game world using client-side camera position
         function renderWorld() {
-            if (!gameState || !gameState.world_data) return;
+            if (!fullWorldData || !fullWorldData.tiles) {
+                console.log('renderWorld skipped - no full world data');
+                return;
+            }
             
-            const world = gameState.world_data;
-            const ui = gameState.ui_state;
+            console.log('Rendering world with cursor at:', clientCursor.x, clientCursor.y, 'camera at:', clientCamera.x, clientCamera.y);
+            
+            const viewWidth = 60;
+            const viewHeight = 30;
             let html = '';
             
-            // Render tiles
-            for (let row = 0; row < world.tiles.length; row++) {
-                for (let col = 0; col < world.tiles[row].length; col++) {
-                    const tile = world.tiles[row][col];
-                    const isCursor = tile.x === ui.cursor_x && tile.y === ui.cursor_y;
+            // Render viewport tiles using client-side camera position
+            for (let viewY = 0; viewY < viewHeight; viewY++) {
+                for (let viewX = 0; viewX < viewWidth; viewX++) {
+                    const worldX = clientCamera.x + viewX;
+                    const worldY = clientCamera.y + viewY;
                     
-                    // Check if there's a vehicle at this position
-                    const vehicle = world.vehicles.find(v => v.x === tile.x && v.y === tile.y);
+                    // Get tile data prioritizing live server data over cache
+                    const tile = getLiveOrCachedTileData(worldX, worldY);
+                    if (!tile) continue;
+                    
+                    const isCursor = worldX === clientCursor.x && worldY === clientCursor.y;
+                    
+                    // Check if there's a vehicle at this position (from game state if available)
+                    let vehicle = null;
+                    if (gameState && gameState.world_data && gameState.world_data.vehicles) {
+                        vehicle = gameState.world_data.vehicles.find(v => v.x === worldX && v.y === worldY);
+                    }
                     
                     let char = tile.ascii_char;
                     let cssClass = '';
@@ -459,14 +1084,23 @@
                     
                     if (isCursor) {
                         cssClass += ' cursor';
+                        
+                        // Add build preview indicator when in build mode
+                        if (buildModeActive) {
+                            const canBuild = canBuildAt(worldX, worldY, buildMode);
+                            cssClass += canBuild ? ' build-preview-valid' : ' build-preview-invalid';
+                        }
                     }
                     
-                    html += `<span class="${cssClass}" title="(${tile.x},${tile.y})">${char}</span>`;
+                    html += `<span class="${cssClass} clickable-tile" title="(${worldX},${worldY})" data-x="${worldX}" data-y="${worldY}">${char}</span>`;
                 }
                 html += '\n';
             }
             
             document.getElementById('worldGrid').innerHTML = html;
+            
+            // Update grid size after rendering for optimal display
+            updateWorldGridSize();
         }
         
         // Update notifications
@@ -515,18 +1149,99 @@
                     e.preventDefault();
                     break;
                 case 'b':
-                    performAction('build_menu');
+                    handleBuildKeyboard(); // Enter build keyboard mode
                     e.preventDefault();
                     break;
+                case 'v':
+                    handleVehiclePurchaseKeyboard(); // Enter vehicle purchase keyboard mode
+                    e.preventDefault();
+                    break;
+                case '1':
+                case '2':
+                case '3':
+                case '4':
+                case '5':
+                case '6':
+                case '7':
+                case '8':
+                    // Try build mode first, then vehicle purchase mode
+                    if (handleBuildNumberKey(e.key) || handleVehiclePurchaseNumberKey(e.key)) {
+                        e.preventDefault();
+                    }
+                    break;
                 case 'Escape':
-                    toggleBuildMenu();
+                    if (buildMenuKeyboardMode) {
+                        // Exit build keyboard mode
+                        exitBuildKeyboardMode();
+                        console.log('Build keyboard mode cancelled');
+                    } else if (vehiclePurchaseKeyboardMode) {
+                        // Exit vehicle purchase keyboard mode
+                        exitVehiclePurchaseKeyboardMode();
+                        console.log('Vehicle purchase keyboard mode cancelled');
+                    } else if (buildModeActive) {
+                        setBuildMode(null); // Exit build mode
+                    } else {
+                        toggleBuildMenuClient(); // Toggle build menu
+                    }
                     e.preventDefault();
                     break;
             }
         });
         
-        // Initialize connection when page loads
-        window.addEventListener('load', connect);
+        // Set up click event listener (only once)
+        window.addEventListener('load', function() {
+            // Initial font size calculation
+            updateWorldGridSize();
+            
+            // Set up click event delegation for tiles
+            const worldGrid = document.getElementById('worldGrid');
+            
+            // Primary click handler - look for clickable tiles
+            worldGrid.addEventListener('click', function(event) {
+                console.log('Grid clicked:', event.target);
+                
+                let target = event.target;
+                
+                // Walk up the DOM tree to find a clickable tile
+                while (target && target !== worldGrid) {
+                    if (target.classList && target.classList.contains('clickable-tile')) {
+                        const x = parseInt(target.getAttribute('data-x'));
+                        const y = parseInt(target.getAttribute('data-y'));
+                        console.log('Click detected on tile:', x, y, 'Target:', target);
+                        clickTile(x, y);
+                        return;
+                    }
+                    target = target.parentElement;
+                }
+                
+                console.log('Click did not find a clickable tile');
+            });
+            
+            // Add a secondary more aggressive click handler
+            worldGrid.addEventListener('mousedown', function(event) {
+                if (event.button === 0) { // Left click only
+                    const target = event.target;
+                    if (target.classList && target.classList.contains('clickable-tile')) {
+                        const x = parseInt(target.getAttribute('data-x'));
+                        const y = parseInt(target.getAttribute('data-y'));
+                        console.log('Mousedown detected on tile:', x, y);
+                        clickTile(x, y);
+                        event.preventDefault();
+                    }
+                }
+            });
+            
+            // Initialize connection
+            connect();
+            
+            // Load full world data for client-side tile information
+            loadFullWorldData();
+        });
+        
+        // Handle window resize for responsive scaling
+        window.addEventListener('resize', function() {
+            updateWorldGridSize();
+        });
     </script>
 </body>
 </html>
