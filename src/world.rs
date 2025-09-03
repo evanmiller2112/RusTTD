@@ -148,12 +148,16 @@ impl World {
                     
                     // Generate cargo demand based on population
                     let base_demand = town.population / 100; // 1 unit demand per 100 people
-                    *town.cargo_demand.entry(CargoType::Food).or_insert(0) += base_demand;
-                    *town.cargo_demand.entry(CargoType::Goods).or_insert(0) += base_demand / 2;
-                    *town.cargo_demand.entry(CargoType::Mail).or_insert(0) += base_demand / 4;
+                    *town.cargo_demand.entry(CargoType::Food).or_insert(0) = 
+                        town.cargo_demand.get(&CargoType::Food).unwrap_or(&0).saturating_add(base_demand);
+                    *town.cargo_demand.entry(CargoType::Goods).or_insert(0) = 
+                        town.cargo_demand.get(&CargoType::Goods).unwrap_or(&0).saturating_add(base_demand / 2);
+                    *town.cargo_demand.entry(CargoType::Mail).or_insert(0) = 
+                        town.cargo_demand.get(&CargoType::Mail).unwrap_or(&0).saturating_add(base_demand / 4);
                     
                     // Towns also generate passengers
-                    *town.cargo_supply.entry(CargoType::Passengers).or_insert(0) += town.population / 200;
+                    *town.cargo_supply.entry(CargoType::Passengers).or_insert(0) = 
+                        town.cargo_supply.get(&CargoType::Passengers).unwrap_or(&0).saturating_add(town.population / 200);
                 }
             }
         }

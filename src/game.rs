@@ -233,7 +233,9 @@ impl Game {
     // Server-side notification management
     pub fn add_notification(&mut self, message: String) {
         self.notifications.push(message.clone());
-        self.notification_timer = 300; // Show for 5 seconds at 60 FPS
+        
+        // Set timer for 8 seconds at 10 FPS (80 ticks)
+        self.notification_timer = 80;
         
         // Keep only the last 5 notifications
         if self.notifications.len() > 5 {
@@ -249,8 +251,16 @@ impl Game {
     pub fn update_notifications(&mut self) {
         if self.notification_timer > 0 {
             self.notification_timer -= 1;
-            if self.notification_timer == 0 {
-                self.notifications.clear();
+            
+            // Only clear notifications when timer expires AND there are notifications to clear
+            if self.notification_timer == 0 && !self.notifications.is_empty() {
+                // Remove the oldest notification instead of clearing all
+                self.notifications.remove(0);
+                
+                // If there are more notifications, reset timer for the next one
+                if !self.notifications.is_empty() {
+                    self.notification_timer = 80;
+                }
             }
         }
     }
@@ -444,18 +454,31 @@ impl Game {
 
     fn format_tile_info(&self, tile: &crate::world::Tile) -> String {
         match &tile.content {
-            crate::world::TileContent::Empty => "Empty".to_string(),
+            crate::world::TileContent::Empty => {
+                // For empty tiles, show terrain information
+                match tile.terrain {
+                    crate::world::TerrainType::Grass => "Grassland".to_string(),
+                    crate::world::TerrainType::Water => "Water".to_string(),
+                    crate::world::TerrainType::Mountain => "Mountain".to_string(),
+                    crate::world::TerrainType::Desert => "Desert".to_string(),
+                    crate::world::TerrainType::Forest => "Forest".to_string(),
+                }
+            },
             crate::world::TileContent::Town(town) => {
-                format!("Town: {}\nPopulation: {}", town.name, town.population)
+                format!("Town: {}\nPopulation: {}\nTerrain: {:?}", town.name, town.population, tile.terrain)
             },
             crate::world::TileContent::Industry(industry) => {
-                format!("Industry: {:?}\nProduction: {}/month", industry.industry_type, industry.production_rate)
+                format!("Industry: {:?}\nProduction: {}/month\nTerrain: {:?}", industry.industry_type, industry.production_rate, tile.terrain)
             },
             crate::world::TileContent::Station(station) => {
-                format!("Station: {}\nType: {:?}", station.name, station.station_type)
+                format!("Station: {}\nType: {:?}\nTerrain: {:?}", station.name, station.station_type, tile.terrain)
             },
-            crate::world::TileContent::Track(_) => "Railway Track".to_string(),
-            crate::world::TileContent::Road => "Road".to_string(),
+            crate::world::TileContent::Track(_) => {
+                format!("Railway Track\nTerrain: {:?}", tile.terrain)
+            },
+            crate::world::TileContent::Road => {
+                format!("Road\nTerrain: {:?}", tile.terrain)
+            },
         }
     }
 

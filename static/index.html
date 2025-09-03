@@ -1,0 +1,532 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RusTTD - Transport Tycoon in Rust</title>
+    <style>
+        body {
+            font-family: 'Courier New', monospace;
+            background: #000;
+            color: #0f0;
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+        }
+        
+        .game-container {
+            display: flex;
+            height: 100vh;
+            width: 100vw;
+        }
+        
+        .game-world {
+            flex: 1;
+            position: relative;
+            background: #001100;
+            overflow: auto;
+        }
+        
+        .world-grid {
+            font-family: monospace;
+            line-height: 1;
+            white-space: pre;
+            padding: 10px;
+            font-size: 12px;
+        }
+        
+        .cursor {
+            background-color: #ffff00 !important;
+            color: #000 !important;
+        }
+        
+        .info-panel {
+            width: 300px;
+            background: #002200;
+            border-left: 2px solid #0f0;
+            padding: 10px;
+            overflow-y: auto;
+        }
+        
+        .info-section {
+            margin-bottom: 15px;
+            border: 1px solid #0f0;
+            padding: 5px;
+        }
+        
+        .info-title {
+            color: #fff;
+            font-weight: bold;
+            border-bottom: 1px solid #0f0;
+            margin-bottom: 5px;
+            padding-bottom: 3px;
+        }
+        
+        .controls {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 5px;
+            margin: 10px 0;
+        }
+        
+        button {
+            background: #003300;
+            color: #0f0;
+            border: 1px solid #0f0;
+            padding: 8px;
+            font-family: monospace;
+            font-size: 11px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        
+        button:hover {
+            background: #0f0;
+            color: #000;
+        }
+        
+        button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+        
+        .build-menu {
+            display: none;
+        }
+        
+        .build-menu.active {
+            display: block;
+        }
+        
+        .vehicle-menu {
+            display: none;
+        }
+        
+        .vehicle-menu.active {
+            display: block;
+        }
+        
+        .notifications {
+            position: fixed;
+            top: 10px;
+            right: 320px;
+            max-width: 300px;
+            z-index: 1000;
+        }
+        
+        .notification {
+            background: #002200;
+            border: 1px solid #0f0;
+            padding: 10px;
+            margin-bottom: 5px;
+            animation: slideIn 0.3s ease-out;
+        }
+        
+        @keyframes slideIn {
+            from { transform: translateX(100%); opacity: 0; }
+            to { transform: translateX(0); opacity: 1; }
+        }
+        
+        .status-bar {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 300px;
+            background: #002200;
+            border-top: 2px solid #0f0;
+            padding: 5px 10px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .connection-status {
+            position: fixed;
+            top: 10px;
+            left: 10px;
+            padding: 5px 10px;
+            border: 1px solid #0f0;
+            background: #002200;
+            z-index: 1000;
+        }
+        
+        .connection-status.connected {
+            border-color: #0f0;
+            color: #0f0;
+        }
+        
+        .connection-status.disconnected {
+            border-color: #f00;
+            color: #f00;
+        }
+        
+        .tile-colors {
+            /* Town */
+            .town { background-color: #000080; }
+            /* Industry */
+            .industry { background-color: #800000; }
+            /* Station */
+            .station { background-color: #008000; }
+            /* Track */
+            .track { background-color: #808000; }
+            /* Road */
+            .road { background-color: #808080; }
+            /* Terrain */
+            .grass { background-color: #228B22; }
+            .water { background-color: #0000FF; }
+            .mountain { background-color: #FFFFFF; }
+            .desert { background-color: #FFFF00; }
+            .forest { background-color: #006400; }
+            /* Vehicles */
+            .vehicle-train { background-color: #00008B; }
+            .vehicle-road { background-color: #8B0000; }
+            .vehicle-ship { background-color: #00FFFF; }
+            .vehicle-aircraft { background-color: #FF00FF; }
+        }
+    </style>
+</head>
+<body>
+    <div id="connectionStatus" class="connection-status disconnected">
+        Connecting...
+    </div>
+    
+    <div class="game-container">
+        <div class="game-world">
+            <div id="worldGrid" class="world-grid"></div>
+        </div>
+        
+        <div class="info-panel">
+            <div class="info-section">
+                <div class="info-title">Player Info</div>
+                <div id="playerInfo">
+                    <div>Name: <span id="playerName">-</span></div>
+                    <div>Money: $<span id="playerMoney">0</span></div>
+                    <div>Vehicles: <span id="vehicleCount">0</span></div>
+                    <div>Reputation: <span id="reputation">0</span></div>
+                </div>
+            </div>
+            
+            <div class="info-section">
+                <div class="info-title">Cursor Position</div>
+                <div>X: <span id="cursorX">0</span>, Y: <span id="cursorY">0</span></div>
+                <div>Camera: <span id="cameraX">0</span>, <span id="cameraY">0</span></div>
+            </div>
+            
+            <div class="info-section">
+                <div class="info-title">Selected Tile</div>
+                <div id="selectedTileInfo">Nothing selected</div>
+            </div>
+            
+            <div class="info-section">
+                <div class="info-title">Controls</div>
+                <div class="controls">
+                    <button onclick="move('up')">▲</button>
+                    <button onclick="performAction('build_menu')">Build</button>
+                    <button onclick="performAction('select')">Select</button>
+                    <button onclick="move('left')">◄</button>
+                    <button onclick="performAction('save')">Save</button>
+                    <button onclick="move('right')">►</button>
+                    <button onclick="toggleBuildMenu()">Cancel</button>
+                    <button onclick="move('down')">▼</button>
+                    <button onclick="performAction('load')">Load</button>
+                </div>
+            </div>
+            
+            <div id="buildMenu" class="info-section build-menu">
+                <div class="info-title">Build Menu</div>
+                <button onclick="buildAction('rail')">🚆 Rail Track ($10k)</button>
+                <button onclick="buildAction('station')">🏢 Train Station ($50k)</button>
+                <button onclick="buildAction('road')">🛣️ Road ($5k)</button>
+                <button onclick="buildAction('bus_stop')">🚌 Bus Stop ($25k)</button>
+                <div style="margin-top: 10px;">
+                    <div class="info-title">Purchase Vehicles</div>
+                    <button onclick="purchaseVehicle('auto')">🎯 Auto Select</button>
+                    <button onclick="purchaseVehicle('train')">🚂 Train</button>
+                    <button onclick="purchaseVehicle('bus')">🚌 Bus</button>
+                    <button onclick="purchaseVehicle('small_truck')">🚚 Small Truck</button>
+                    <button onclick="purchaseVehicle('large_truck')">🚛 Large Truck</button>
+                    <button onclick="purchaseVehicle('ship')">🚢 Ship</button>
+                    <button onclick="purchaseVehicle('small_plane')">✈️ Small Plane</button>
+                    <button onclick="purchaseVehicle('large_plane')">🛩️ Large Plane</button>
+                </div>
+            </div>
+            
+            <div id="vehicleMenu" class="info-section vehicle-menu">
+                <div class="info-title">Vehicle Orders</div>
+                <button onclick="vehicleOrder('go_to')">Go To Location</button>
+                <button onclick="vehicleOrder('create_route')">Create Route</button>
+                <button onclick="vehicleOrder('start_route')">Start Route</button>
+                <button onclick="vehicleOrder('stop')">Stop</button>
+                <button onclick="vehicleOrder('depot')">Send to Depot</button>
+            </div>
+        </div>
+    </div>
+    
+    <div class="status-bar">
+        <div>Game Time: <span id="gameTime">0</span></div>
+        <div>FPS: <span id="fps">0</span></div>
+        <div>Status: <span id="gameStatus">Running</span></div>
+    </div>
+    
+    <div id="notifications" class="notifications"></div>
+
+    <script>
+        let socket = null;
+        let gameState = null;
+        let lastFrameTime = 0;
+        let frameCount = 0;
+        let fps = 0;
+        
+        // Connection management
+        function connect() {
+            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const wsUrl = `${protocol}//${window.location.host}/ws`;
+            
+            socket = new WebSocket(wsUrl);
+            
+            socket.onopen = function() {
+                console.log('Connected to RusTTD server');
+                const statusElement = document.getElementById('connectionStatus');
+                statusElement.textContent = 'Connected';
+                statusElement.className = 'connection-status connected';
+                
+                // Hide connection status after 3 seconds
+                setTimeout(() => {
+                    statusElement.style.display = 'none';
+                }, 3000);
+            };
+            
+            socket.onmessage = function(event) {
+                try {
+                    gameState = JSON.parse(event.data);
+                    updateDisplay();
+                } catch (e) {
+                    console.error('Failed to parse game state:', e);
+                }
+            };
+            
+            socket.onclose = function() {
+                console.log('Disconnected from server');
+                const statusElement = document.getElementById('connectionStatus');
+                statusElement.textContent = 'Disconnected';
+                statusElement.className = 'connection-status disconnected';
+                statusElement.style.display = 'block'; // Show when disconnected
+                
+                // Attempt to reconnect after 3 seconds
+                setTimeout(connect, 3000);
+            };
+            
+            socket.onerror = function(error) {
+                console.error('WebSocket error:', error);
+            };
+        }
+        
+        // Send command to server
+        function sendCommand(command) {
+            if (socket && socket.readyState === WebSocket.OPEN) {
+                socket.send(JSON.stringify(command));
+            }
+        }
+        
+        // Movement controls
+        function move(direction) {
+            sendCommand({
+                command_type: 'move_' + direction
+            });
+        }
+        
+        // Action controls
+        function performAction(action) {
+            sendCommand({
+                command_type: action
+            });
+        }
+        
+        // Build actions
+        function buildAction(action) {
+            sendCommand({
+                command_type: 'build_' + action
+            });
+        }
+        
+        // Vehicle purchase
+        function purchaseVehicle(vehicleType) {
+            sendCommand({
+                command_type: 'buy_' + vehicleType
+            });
+        }
+        
+        // Vehicle orders
+        function vehicleOrder(order) {
+            sendCommand({
+                command_type: 'vehicle_' + order
+            });
+        }
+        
+        // Toggle build menu
+        function toggleBuildMenu() {
+            const menu = document.getElementById('buildMenu');
+            menu.classList.toggle('active');
+        }
+        
+        // Update display with game state
+        function updateDisplay() {
+            if (!gameState) return;
+            
+            // Update FPS counter
+            const now = Date.now();
+            frameCount++;
+            if (now - lastFrameTime >= 1000) {
+                fps = frameCount;
+                frameCount = 0;
+                lastFrameTime = now;
+                document.getElementById('fps').textContent = fps;
+            }
+            
+            // Update player info
+            const player = gameState.player_data;
+            document.getElementById('playerName').textContent = player.name;
+            document.getElementById('playerMoney').textContent = player.money.toLocaleString();
+            document.getElementById('vehicleCount').textContent = player.vehicle_count;
+            document.getElementById('reputation').textContent = player.reputation;
+            
+            // Update cursor and camera info
+            const ui = gameState.ui_state;
+            document.getElementById('cursorX').textContent = ui.cursor_x;
+            document.getElementById('cursorY').textContent = ui.cursor_y;
+            document.getElementById('cameraX').textContent = ui.camera_x;
+            document.getElementById('cameraY').textContent = ui.camera_y;
+            
+            // Update selected tile info
+            const selectedTileElement = document.getElementById('selectedTileInfo');
+            if (ui.selected_tile_info) {
+                selectedTileElement.textContent = ui.selected_tile_info;
+            } else {
+                selectedTileElement.textContent = 'Nothing selected';
+            }
+            
+            // Update game time
+            document.getElementById('gameTime').textContent = gameState.game_time;
+            
+            // Show/hide menus
+            const buildMenu = document.getElementById('buildMenu');
+            if (ui.show_build_menu) {
+                buildMenu.classList.add('active');
+            } else {
+                buildMenu.classList.remove('active');
+            }
+            
+            const vehicleMenu = document.getElementById('vehicleMenu');
+            if (ui.show_vehicle_menu) {
+                vehicleMenu.classList.add('active');
+            } else {
+                vehicleMenu.classList.remove('active');
+            }
+            
+            // Update notifications
+            updateNotifications();
+            
+            // Render the world
+            renderWorld();
+        }
+        
+        // Render the game world
+        function renderWorld() {
+            if (!gameState || !gameState.world_data) return;
+            
+            const world = gameState.world_data;
+            const ui = gameState.ui_state;
+            let html = '';
+            
+            // Render tiles
+            for (let row = 0; row < world.tiles.length; row++) {
+                for (let col = 0; col < world.tiles[row].length; col++) {
+                    const tile = world.tiles[row][col];
+                    const isCursor = tile.x === ui.cursor_x && tile.y === ui.cursor_y;
+                    
+                    // Check if there's a vehicle at this position
+                    const vehicle = world.vehicles.find(v => v.x === tile.x && v.y === tile.y);
+                    
+                    let char = tile.ascii_char;
+                    let cssClass = '';
+                    
+                    if (vehicle) {
+                        char = vehicle.ascii_char;
+                        cssClass = `vehicle-${vehicle.vehicle_type.toLowerCase()}`;
+                    } else {
+                        cssClass = tile.style_color;
+                    }
+                    
+                    if (isCursor) {
+                        cssClass += ' cursor';
+                    }
+                    
+                    html += `<span class="${cssClass}" title="(${tile.x},${tile.y})">${char}</span>`;
+                }
+                html += '\n';
+            }
+            
+            document.getElementById('worldGrid').innerHTML = html;
+        }
+        
+        // Update notifications
+        function updateNotifications() {
+            if (!gameState || !gameState.notifications || gameState.notifications.length === 0) {
+                document.getElementById('notifications').innerHTML = '';
+                return;
+            }
+            
+            const container = document.getElementById('notifications');
+            container.innerHTML = '';
+            
+            gameState.notifications.forEach(notification => {
+                const div = document.createElement('div');
+                div.className = 'notification';
+                div.textContent = notification;
+                container.appendChild(div);
+            });
+        }
+        
+        // Keyboard controls
+        document.addEventListener('keydown', function(e) {
+            switch(e.key) {
+                case 'w':
+                case 'ArrowUp':
+                    move('up');
+                    e.preventDefault();
+                    break;
+                case 's':
+                case 'ArrowDown':
+                    move('down');
+                    e.preventDefault();
+                    break;
+                case 'a':
+                case 'ArrowLeft':
+                    move('left');
+                    e.preventDefault();
+                    break;
+                case 'd':
+                case 'ArrowRight':
+                    move('right');
+                    e.preventDefault();
+                    break;
+                case ' ':
+                    performAction('select');
+                    e.preventDefault();
+                    break;
+                case 'b':
+                    performAction('build_menu');
+                    e.preventDefault();
+                    break;
+                case 'Escape':
+                    toggleBuildMenu();
+                    e.preventDefault();
+                    break;
+            }
+        });
+        
+        // Initialize connection when page loads
+        window.addEventListener('load', connect);
+    </script>
+</body>
+</html>
